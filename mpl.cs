@@ -99,10 +99,10 @@ namespace Matway.MSBuild
       TrackFileAccess = true;
       MinimalRebuildFromTracking = true;
 
-      FindOutOutdetedFiles();
+      FindOutOutdatedFiles();
     }
 
-    private void FindOutOutdetedFiles()
+    private void FindOutOutdatedFiles()
     {
       TrackCommandLines = false;
       SkipTaskExecution();
@@ -354,6 +354,8 @@ namespace Matway.MSBuild
 
   public class MplCompile : TrackedVCToolTask
   {
+    protected override Encoding StandardErrorEncoding { get { return Encoding.UTF8; } }
+    protected override Encoding StandardOutputEncoding { get { return Encoding.UTF8; } }
     protected override ArrayList SwitchOrderList { get { return switchOrderList; } }
     protected override string ToolName { get { return "mplc"; } }
     protected override ITaskItem[] TrackedInputFiles { get { return InputFiles; } }
@@ -373,7 +375,9 @@ namespace Matway.MSBuild
       "RecursionDepthLimit",
       "StaticLoopLimit",
       "AdditionalOptions",
-      "InputFiles"
+      "InputFiles",
+      "SplitCompilation",
+      "OutputFiles"
     };
 
     private String trackerLogsFolder;
@@ -431,8 +435,16 @@ namespace Matway.MSBuild
       return string.Empty;
     }
 
+    protected override bool HandleTaskExecutionErrors()
+    {
+      base.HandleTaskExecutionErrors();
+      return ExitCode == -1;
+    }
+
     protected override void PostProcessSwitchList()
     {
+      NormalizeEvaluatedSources();
+
       var firstFile = InputFiles.First();
       ToolExe = firstFile.GetMetadata("CompilerPath");
 
@@ -444,7 +456,7 @@ namespace Matway.MSBuild
       ActiveToolSwitches["PointerSize"] = argument;
 
       ActiveToolSwitches["Definitions"] = new ToolSwitch(ToolSwitchType.StringArray) { StringList = firstFile.GetMetadata("Definitions").Split(';'), SwitchValue = "-D " };
-      ActiveToolSwitches["IncludeFolders"] = new ToolSwitch(ToolSwitchType.StringPathArray) { StringList = firstFile.GetMetadata("IncludeFolders").Split(';'), SwitchValue = "-I " };
+      ActiveToolSwitches["IncludeFolders"] = new ToolSwitch(ToolSwitchType.StringPathArray) { StringList = firstFile.GetMetadata("IncludeFolders").Split(';').Select(a => NormalizePath(a, firstFile.GetMetadata("AbsolutePaths") == "true")).ToArray(), SwitchValue = "-I " };
 
       argument = new ToolSwitch(ToolSwitchType.String) { MultipleValues = true };
       if (firstFile.GetMetadata("CallTrace") == "SingleThreaded") argument.SwitchValue = "-call_trace 1";
@@ -459,10 +471,10 @@ namespace Matway.MSBuild
       if (firstFile.GetMetadata("DisableDebugInfo") != "true") ActiveToolSwitches.Remove("DisableDebugInfo");
       else ActiveToolSwitches["DisableDebugInfo"] = new ToolSwitch(ToolSwitchType.String) { MultipleValues = true, SwitchValue = "-ndebug" };
 
-      ActiveToolSwitches["OutputFile"] = new ToolSwitch(ToolSwitchType.File) { SwitchValue = "-o ", Value = firstFile.GetMetadata("OutputFile") };
-
-      if (firstFile.GetMetadata("PartialCompilation") != "true") ActiveToolSwitches.Remove("PartialCompilation");
-      else ActiveToolSwitches["PartialCompilation"] = new ToolSwitch(ToolSwitchType.String) { MultipleValues = true, SwitchValue = "-part" };
+      string compilationMode = firstFile.GetMetadata("CompilationMode");
+      if (compilationMode == "Partial") { ActiveToolSwitches["OutputFile"] = new ToolSwitch(ToolSwitchType.File) { SwitchValue = "-o ", Value = firstFile.GetMetadata("OutputFile") }; ActiveToolSwitches["PartialCompilation"] = new ToolSwitch(ToolSwitchType.String) { MultipleValues = true, SwitchValue = "-part" }; }
+      else if (compilationMode == "Split") { ActiveToolSwitches["SplitCompilation"] = new ToolSwitch(ToolSwitchType.String) { MultipleValues = true, SwitchValue = "-split" }; ActiveToolSwitches["OutputFiles"] = new ToolSwitch(ToolSwitchType.StringArray) { StringList = InputFiles.AsEnumerable().Select(a => a.GetMetadata("OutputFile")).ToArray() }; }
+      else { ActiveToolSwitches["OutputFile"] = new ToolSwitch(ToolSwitchType.File) { SwitchValue = "-o ", Value = firstFile.GetMetadata("OutputFile") }; ActiveToolSwitches.Remove("CompilationMode"); }
 
       if (firstFile.GetMetadata("RecursionDepthLimit") == "") ActiveToolSwitches.Remove("RecursionDepthLimit");
       else ActiveToolSwitches["RecursionDepthLimit"] = new ToolSwitch(ToolSwitchType.Integer) { IsValid = true, Number = int.Parse(firstFile.GetMetadata("RecursionDepthLimit")), SwitchValue = "-recursion_depth_limit " };
@@ -471,6 +483,26 @@ namespace Matway.MSBuild
       else ActiveToolSwitches["StaticLoopLimit"] = new ToolSwitch(ToolSwitchType.Integer) { IsValid = true, Number = int.Parse(firstFile.GetMetadata("StaticLoopLimit")), SwitchValue = "-static_loop_length_limit " };
 
       AdditionalOptions = firstFile.GetMetadata("AdditionalOptions");
+    }
+
+    private void NormalizeEvaluatedSources()
+    {
+      foreach (var file in InputFiles)
+      {
+        file.ItemSpec = NormalizePath(file.ItemSpec, file.GetMetadata("AbsolutePaths") == "true");
+      }
+    }
+
+    private string NormalizePath(string path0, bool absolutePath)
+    {
+      var path = absolutePath ? Path.GetFullPath(path0) : path0;
+      if (!path.StartsWith(@"\\"))
+      {
+        return path.Replace('\\', '/');
+      }
+
+      // TODO: Show warning that [\] in unc path can't be replaced by [/].
+      return path;
     }
   }
 }

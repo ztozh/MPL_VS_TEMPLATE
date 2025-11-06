@@ -94,10 +94,10 @@ namespace Matway.MSBuild
       TrackFileAccess = true;
       MinimalRebuildFromTracking = true;
 
-      FindOutOutdetedFiles();
+      FindOutOutdatedFiles();
     }
 
-    private void FindOutOutdetedFiles()
+    private void FindOutOutdatedFiles()
     {
       TrackCommandLines = false;
       SkipTaskExecution();
@@ -367,6 +367,12 @@ namespace Matway.MSBuild
     protected override string GenerateResponseFileCommands()
     {
       return string.Empty;
+    }
+
+    protected override bool HandleTaskExecutionErrors()
+    {
+      base.HandleTaskExecutionErrors();
+      return ExitCode == -1;
     }
 
     protected override void PostProcessSwitchList()

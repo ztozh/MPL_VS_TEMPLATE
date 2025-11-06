@@ -37,19 +37,19 @@
       <!-- Remove files that are excluded from build -->
       <MPL Condition="%(MPL.ExcludedFromBuild) == true" Remove="@(MPL)"/>
 
-      <!-- Replace output file for files without partial compilation -->
-      <MPL Condition="%(MPL.PartialCompilation) != true" OutputFile="$(IntDir)mpl.ll"/>
+      <MPL Condition="%(MPL.CompilationMode) != Regular" OutputFile="$(IntDir)$([System.String]::Copy(%(Identity)).Replace(&quot;\&quot;, &quot;_&quot;)).ll"/> <!-- Replace output file for files without regular compilation -->
+      <MPL Condition="%(MPL.CompilationMode) == Regular" OutputFile="$(IntDir)mpl.ll"/> <!-- Replace output file for files with regular compilation -->
     </ItemGroup>
 
-    <!-- Compile files without partial compilation -->
+    <!-- Compile files with regular or split compilation -->
     <MplCompile
-      Condition="%(MPL.PartialCompilation) != true"
+      Condition="%(MPL.CompilationMode) != Partial"
       InputFiles="@(MPL)"
       TrackerLogsFolder="$(TLogLocation)"/>
 
     <!-- Compile files with partial compilation -->
     <MplMultiTaskTool
-      Condition="%(MPL.PartialCompilation) == true"
+      Condition="%(MPL.CompilationMode) == Partial"
       Sources="@(MPL)"
       ToolExe="%(CompilerPath)"
       TrackerLogDirectory="$(TLogLocation)"/>
